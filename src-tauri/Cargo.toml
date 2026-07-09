@@ -1,0 +1,39 @@
+[package]
+name = "clipboard-history"
+version = "0.1.0"
+description = "Windows 剪贴板历史记录管理工具"
+authors = []
+edition = "2021"
+
+[lib]
+name = "clipboard_history_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+log = "0.4"
+tokio = { version = "1", features = ["full"] }

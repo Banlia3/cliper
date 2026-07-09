@@ -1,0 +1,73 @@
+/* ============================================
+   剪贴板历史面板 - 样式表
+   支持浅色 / 深色主题
+   ============================================ */
+
+/* CSS 变量（主题） */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-hover: #e8e8e8;
+  --bg-active: #dcdcdc;
+  --bg-hover-secondary: #e0e0e0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #888888;
+  --border-color: #eaeaea;
+  --accent: #0078d4;
+  --accent-hover: #106ebe;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  --radius: 12px;
+}
+
+/* 深色主题 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #2d2d2d;
+    --bg-hover: #383838;
+    --bg-active: #404040;
+    --bg-hover-secondary: #454545;
+    --text-primary: #e0e0e0;
+    --text-secondary: #999999;
+    --border-color: #333333;
+    --accent: #4fc3f7;
+    --accent-hover: #29b6f6;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* 全局重置 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 3px;
+  opacity: 0.5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
