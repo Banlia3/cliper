@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listFolders, addToFolder, removeFromFolder, getEntryFolders } from "../stores/folders";
+  import { folderDataVersion } from "../stores/ui";
   import type { FolderWithEntryCount } from "../types";
 
   interface Props {
@@ -26,15 +27,22 @@
   });
 
   async function toggleFolder(folderId: number) {
+    // 先 await 后端结果，成功后再更新 UI 状态
     if (selectedFolderIds.has(folderId)) {
-      selectedFolderIds.delete(folderId);
-      await removeFromFolder(folderId, entryId);
+      const ok = await removeFromFolder(folderId, entryId);
+      if (ok) {
+        selectedFolderIds.delete(folderId);
+        selectedFolderIds = new Set(selectedFolderIds);
+        folderDataVersion.update(v => v + 1);
+      }
     } else {
-      selectedFolderIds.add(folderId);
-      await addToFolder(folderId, entryId);
+      const ok = await addToFolder(folderId, entryId);
+      if (ok) {
+        selectedFolderIds.add(folderId);
+        selectedFolderIds = new Set(selectedFolderIds);
+        folderDataVersion.update(v => v + 1);
+      }
     }
-    // 触发重新渲染
-    selectedFolderIds = new Set(selectedFolderIds);
   }
 </script>
 

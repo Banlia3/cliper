@@ -4,6 +4,18 @@ use crate::db::models::{Folder, FolderWithEntryCount, ClipboardEntrySummary};
 use crate::db::queries;
 use std::sync::Arc;
 
+/// 验证文件夹名称（不能为空/纯空白，不能超过 50 字符）
+fn validate_folder_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("文件夹名称不能为空".to_string());
+    }
+    if trimmed.chars().count() > 50 {
+        return Err("文件夹名称不能超过 50 个字符".to_string());
+    }
+    Ok(())
+}
+
 /// 列出所有文件夹（含条目计数）
 #[tauri::command]
 pub fn list_folders(
@@ -19,8 +31,9 @@ pub fn create_folder(
     db: State<'_, Arc<Database>>,
     name: String,
 ) -> Result<Folder, String> {
+    validate_folder_name(&name)?;
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    queries::create_folder(&conn, &name).map_err(|e| e.to_string())
+    queries::create_folder(&conn, name.trim()).map_err(|e| e.to_string())
 }
 
 /// 重命名文件夹
@@ -30,8 +43,9 @@ pub fn rename_folder(
     id: i64,
     name: String,
 ) -> Result<(), String> {
+    validate_folder_name(&name)?;
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    queries::rename_folder(&conn, id, &name).map_err(|e| e.to_string())
+    queries::rename_folder(&conn, id, name.trim()).map_err(|e| e.to_string())
 }
 
 /// 删除自定义文件夹（默认收藏夹不会被删除）

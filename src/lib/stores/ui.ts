@@ -17,3 +17,6 @@ export const errorMessage = writable<string | null>(null);
 
 /** 当前选中的文件夹ID（null = 全部） */
 export const selectedFolderId = writable<number | null>(null);
+
+/** 文件夹数据版本号 — 自增后触发 FolderBar 刷新计数 */
+export const folderDataVersion = writable<number>(0);

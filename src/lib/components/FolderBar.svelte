@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { selectedFolderId } from "../stores/ui";
+  import { selectedFolderId, folderDataVersion } from "../stores/ui";
   import { listFolders, createFolder, renameFolder, deleteFolder } from "../stores/folders";
   import type { Folder, FolderWithEntryCount } from "../types";
 
@@ -17,7 +16,12 @@
     folders = await listFolders();
   }
 
-  onMount(load);
+  // 监听 folderDataVersion 变化时刷新（例如从 FolderAssignPopover 修改后）
+  // 也会在首次挂载时自动加载
+  $effect(() => {
+    $folderDataVersion;
+    load();
+  });
 
   /** 选择文件夹 */
   function select(folderId: number | null) {

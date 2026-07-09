@@ -16,6 +16,7 @@
   let searchResults = $state<ClipboardEntry[] | null>(null);
   let unlisten: UnlistenFn | undefined = $state();
   let unlistenFocus: UnlistenFn | undefined = $state();
+  let unlistenHistoryCleared: UnlistenFn | undefined = $state();
 
   // 文件夹视图状态
   let folderEntries = $state<ClipboardEntry[] | null>(null);
@@ -78,11 +79,21 @@
         entries = mergeEntries(entries, freshEntries);
       }
     });
+
+    // 监听托盘"清空历史"事件
+    unlistenHistoryCleared = await listen("history-cleared", () => {
+      entries = [];
+      offset = 0;
+      hasMore = false;
+      searchResults = null;
+      folderEntries = null;
+    });
   });
 
   onDestroy(() => {
     if (unlisten) unlisten();
     if (unlistenFocus) unlistenFocus();
+    if (unlistenHistoryCleared) unlistenHistoryCleared();
   });
 
   /** 加载文件夹内容 */
@@ -134,7 +145,7 @@
     }
   });
 
-  /** 搜索监听 */
+  /** 搜索监听（SearchBar 已做防抖，此处即时响应） */
   $effect(() => {
     const query = $searchQuery;
     if (!query) {
@@ -142,12 +153,9 @@
       return;
     }
 
-    const timeout = setTimeout(async () => {
-      const results = await searchHistory(query);
+    searchHistory(query).then(results => {
       searchResults = results;
-    }, 200);
-
-    return () => clearTimeout(timeout);
+    });
   });
 
   /** 复制到剪贴板 */

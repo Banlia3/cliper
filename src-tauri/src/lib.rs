@@ -151,8 +151,8 @@ pub fn run() {
                 }
             });
 
-            // 6. 注册全局热键（失败不崩溃，只警告——可能重复启动或其他软件占用）
-            if let Err(e) = hotkey::register_hotkey(&app_handle) {
+            // 6. 注册全局热键（从设置中读取键位，失败不崩溃只警告）
+            if let Err(e) = hotkey::register_hotkey(&app_handle, &db) {
                 log::warn!("全局热键注册失败（面板只能通过托盘打开）: {}", e);
             }
 

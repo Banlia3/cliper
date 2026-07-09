@@ -173,23 +173,38 @@ pub fn get_entry_raw_content(conn: &Connection, id: i64) -> Result<Option<Vec<u8
 
 /// 切换收藏状态（同时自动更新默认收藏夹）
 pub fn toggle_pin(conn: &Connection, id: i64) -> Result<bool> {
-    conn.execute(
-        "UPDATE clipboard_entries SET is_pinned = CASE WHEN is_pinned = 0 THEN 1 ELSE 0 END WHERE id = ?1",
-        params![id],
-    )?;
-    // 返回新状态
-    let pinned: bool = conn
-        .query_row(
-            "SELECT is_pinned FROM clipboard_entries WHERE id = ?1",
+    conn.execute_batch("BEGIN")?;
+
+    // 使用闭包封装操作，确保 ? 运算符能正确传播错误
+    let result = (|| -> Result<bool> {
+        conn.execute(
+            "UPDATE clipboard_entries SET is_pinned = CASE WHEN is_pinned = 0 THEN 1 ELSE 0 END WHERE id = ?1",
             params![id],
-            |row| row.get::<_, i32>(0).map(|v| v != 0),
-        )
-        .unwrap_or(false);
+        )?;
+        let pinned: bool = conn
+            .query_row(
+                "SELECT is_pinned FROM clipboard_entries WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i32>(0).map(|v| v != 0),
+            )
+            .unwrap_or(false);
 
-    // 同步默认收藏夹
-    sync_pinned_to_default_folder(conn, id, pinned)?;
+        // 同步默认收藏夹（同一事务内）
+        sync_pinned_to_default_folder(conn, id, pinned)?;
+        Ok(pinned)
+    })();
 
-    Ok(pinned)
+    match result {
+        Ok(pinned) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(pinned)
+        }
+        Err(e) => {
+            // 回滚事务，忽略回滚本身的错误
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
 }
 
 // ========== 文件夹相关函数 ==========
@@ -255,13 +270,14 @@ pub fn delete_folder(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// 列出所有文件夹（含条目计数）
+/// 列出所有文件夹（含条目计数，排除软删除条目）
 pub fn list_folders(conn: &Connection) -> Result<Vec<FolderWithEntryCount>> {
     let mut stmt = conn.prepare(
         "SELECT f.id, f.name, f.is_default, f.sort_order, f.created_at, f.updated_at,
-                COUNT(fe.entry_id) AS entry_count
+                COUNT(e.id) AS entry_count
          FROM folders f
          LEFT JOIN folder_entries fe ON fe.folder_id = f.id
+         LEFT JOIN clipboard_entries e ON fe.entry_id = e.id AND e.is_deleted = 0
          GROUP BY f.id
          ORDER BY f.sort_order ASC, f.id ASC",
     )?;
@@ -359,21 +375,50 @@ pub fn get_entry_folders(conn: &Connection, entry_id: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// 软删除单条
+/// 软删除单条（同时清理文件夹关联）
 pub fn soft_delete_entry(conn: &Connection, id: i64) -> Result<()> {
     conn.execute(
         "UPDATE clipboard_entries SET is_deleted = 1 WHERE id = ?1",
         params![id],
     )?;
+    // 清理文件夹关联（软删除不会触发 ON DELETE CASCADE）
+    conn.execute(
+        "DELETE FROM folder_entries WHERE entry_id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
-/// 清空所有非收藏条目
+/// 清空所有非收藏条目（同时清理文件夹关联）
 pub fn clear_unpinned(conn: &Connection) -> Result<usize> {
+    // 先记录将要被软删除的 ID
+    let mut stmt = conn.prepare(
+        "SELECT id FROM clipboard_entries WHERE is_pinned = 0 AND is_deleted = 0",
+    )?;
+    let ids: Vec<i64> = stmt.query_map([], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
     let count = conn.execute(
         "UPDATE clipboard_entries SET is_deleted = 1 WHERE is_pinned = 0 AND is_deleted = 0",
         [],
     )?;
+
+    // 清理这些条目的文件夹关联（软删除不会触发 ON DELETE CASCADE）
+    if count > 0 {
+        for chunk in ids.chunks(100) {
+            let placeholders: Vec<String> = chunk.iter().map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "DELETE FROM folder_entries WHERE entry_id IN ({})",
+                placeholders.join(",")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            stmt.execute(params.as_slice())?;
+        }
+    }
+
     Ok(count)
 }
 
