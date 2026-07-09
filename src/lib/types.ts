@@ -20,6 +20,21 @@ export interface NewClipEvent {
   content_type: string;
 }
 
+/** 收藏文件夹 */
+export interface Folder {
+  id: number;
+  name: string;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 带条目计数的收藏文件夹 */
+export interface FolderWithEntryCount extends Folder {
+  entry_count: number;
+}
+
 /** 应用设置 */
 export interface AppSettings {
   hotkey_modifiers: string;

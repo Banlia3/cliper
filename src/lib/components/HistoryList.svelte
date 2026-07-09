@@ -2,7 +2,8 @@
   import HistoryItem from "./HistoryItem.svelte";
   import type { ClipboardEntry } from "../types";
   import { loadHistory, searchHistory, copyToClipboard, deleteEntry, togglePin, clearHistory } from "../stores/history";
-  import { searchQuery, panelVisible } from "../stores/ui";
+  import { getFolderEntries } from "../stores/folders";
+  import { searchQuery, panelVisible, selectedFolderId } from "../stores/ui";
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -15,6 +16,11 @@
   let searchResults = $state<ClipboardEntry[] | null>(null);
   let unlisten: UnlistenFn | undefined = $state();
   let unlistenFocus: UnlistenFn | undefined = $state();
+
+  // 文件夹视图状态
+  let folderEntries = $state<ClipboardEntry[] | null>(null);
+  let folderOffset = $state(0);
+  let folderHasMore = $state(true);
 
   const PAGE_SIZE = 30;
 
@@ -79,10 +85,37 @@
     if (unlistenFocus) unlistenFocus();
   });
 
+  /** 加载文件夹内容 */
+  async function loadFolderEntries(folderId: number, reset: boolean) {
+    loading = true;
+
+    if (reset) {
+      folderOffset = 0;
+      folderHasMore = true;
+      folderEntries = [];
+    }
+
+    const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
+    folderEntries = [...(folderEntries ?? []), ...newEntries];
+    folderOffset += newEntries.length;
+    folderHasMore = newEntries.length === PAGE_SIZE;
+    loading = false;
+  }
+
   /** 加载更多（分页） */
   async function loadMore() {
     if (loading || !hasMore) return;
     loading = true;
+
+    const folderId = $selectedFolderId;
+    if (folderId !== null) {
+      const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
+      folderEntries = [...(folderEntries ?? []), ...newEntries];
+      folderOffset += newEntries.length;
+      folderHasMore = newEntries.length === PAGE_SIZE;
+      loading = false;
+      return;
+    }
 
     const newEntries = await loadHistory(offset, PAGE_SIZE);
     entries = [...entries, ...newEntries];
@@ -90,6 +123,16 @@
     hasMore = newEntries.length === PAGE_SIZE;
     loading = false;
   }
+
+  /** 文件夹选择监听 */
+  $effect(() => {
+    const folderId = $selectedFolderId;
+    if (folderId === null) {
+      folderEntries = null;
+    } else {
+      loadFolderEntries(folderId, true);
+    }
+  });
 
   /** 搜索监听 */
   $effect(() => {
@@ -157,7 +200,7 @@
     }
   }
 
-  const displayEntries = $derived(searchResults ?? entries);
+  const displayEntries = $derived(folderEntries ?? searchResults ?? entries);
 </script>
 
 <div class="history-list" onscroll={onScroll}>
@@ -165,9 +208,9 @@
     <div class="empty-state">
       <div class="empty-icon">📋</div>
       <div class="empty-text">
-        {searchResults ? "没有匹配的结果" : "暂无剪贴板历史"}
+        {folderEntries !== null ? "此文件夹为空" : searchResults ? "没有匹配的结果" : "暂无剪贴板历史"}
       </div>
-      {#if !searchResults}
+      {#if !searchResults && folderEntries === null}
         <div class="empty-hint">复制任意内容后将自动显示在这里</div>
       {/if}
     </div>

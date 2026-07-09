@@ -3,6 +3,7 @@
   import { formatRelativeTime, getContentTypeIcon, truncateText } from "../utils";
   import { getEntryContent, createImageUrl } from "../stores/history";
   import { onDestroy } from "svelte";
+  import FolderAssignPopover from "./FolderAssignPopover.svelte";
 
   interface Props {
     entry: ClipboardEntry;
@@ -12,6 +13,7 @@
   }
 
   let { entry, onSelect, onPin, onDelete }: Props = $props();
+  let showFolderPopover = $state(false);
 
   let imageUrl = $state<string | null>(null);
   let imageLoading = $state(false);
@@ -57,6 +59,11 @@
       URL.revokeObjectURL(imageUrl);
     }
     onDelete(entry.id);
+  }
+
+  function handleFolderAssign(e: MouseEvent) {
+    e.stopPropagation();
+    showFolderPopover = true;
   }
 
   onDestroy(() => {
@@ -109,9 +116,19 @@
     <button class="action-btn pin-btn" onclick={handlePin} title={entry.is_pinned ? "取消置顶" : "置顶"}>
       {entry.is_pinned ? "★" : "☆"}
     </button>
+    <button class="action-btn folder-btn" onclick={handleFolderAssign} title="分配到文件夹">
+      📁
+    </button>
     <button class="action-btn delete-btn" onclick={handleDelete} title="删除">🗑️</button>
   </div>
 </div>
+
+{#if showFolderPopover}
+  <FolderAssignPopover
+    entryId={entry.id}
+    onClose={() => showFolderPopover = false}
+  />
+{/if}
 
 <style>
   .history-item {

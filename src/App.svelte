@@ -2,6 +2,7 @@
   import "./app.css";
   import SearchBar from "./lib/components/SearchBar.svelte";
   import HistoryList from "./lib/components/HistoryList.svelte";
+  import FolderBar from "./lib/components/FolderBar.svelte";
   import { panelVisible, searchQuery } from "./lib/stores/ui";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -53,6 +54,9 @@
     <span class="title-text">剪贴板历史</span>
     <button class="close-btn" onclick={closePanel}>✕</button>
   </div>
+
+  <!-- 文件夹栏 -->
+  <FolderBar />
 
   <!-- 搜索栏 -->
   <SearchBar />

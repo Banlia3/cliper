@@ -14,3 +14,6 @@ export const isLoading = writable<boolean>(false);
 
 /** 错误信息 */
 export const errorMessage = writable<string | null>(null);
+
+/** 当前选中的文件夹ID（null = 全部） */
+export const selectedFolderId = writable<number | null>(null);

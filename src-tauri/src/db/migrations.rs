@@ -48,6 +48,49 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
+    // 文件夹表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS folders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            is_default  INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );",
+        [],
+    )?;
+
+    // 文件夹-条目关联表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS folder_entries (
+            folder_id   INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            entry_id    INTEGER NOT NULL REFERENCES clipboard_entries(id) ON DELETE CASCADE,
+            added_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (folder_id, entry_id)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_folder_entries_entry ON folder_entries(entry_id);",
+        [],
+    )?;
+
+    // 创建默认收藏夹
+    conn.execute(
+        "INSERT OR IGNORE INTO folders (name, is_default, sort_order) VALUES ('收藏夹', 1, 0);",
+        [],
+    )?;
+
+    // 回填已有 pinned 条目到默认收藏夹
+    conn.execute(
+        "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at)
+         SELECT (SELECT id FROM folders WHERE is_default = 1), id, captured_at
+         FROM clipboard_entries WHERE is_pinned = 1 AND is_deleted = 0;",
+        [],
+    )?;
+
     // 插入默认设置（如果不存在）
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES ('hotkey_modifiers', 'Ctrl+Shift')",

@@ -83,6 +83,29 @@ impl From<ClipboardEntry> for ClipboardEntrySummary {
     }
 }
 
+/// 收藏文件夹
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Folder {
+    pub id: i64,
+    pub name: String,
+    pub is_default: bool,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 带条目计数的收藏文件夹（前端列表展示用）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderWithEntryCount {
+    pub id: i64,
+    pub name: String,
+    pub is_default: bool,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+    pub entry_count: i64,
+}
+
 /// 设置键值对
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsEntry {

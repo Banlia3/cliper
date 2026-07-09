@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, Result};
 
-use super::models::{ClipboardEntry, ContentType};
+use super::models::{ClipboardEntry, ContentType, Folder, FolderWithEntryCount};
 
 /// 插入新条目（如果哈希冲突则更新 last_accessed）
 pub fn insert_or_update_entry(
@@ -171,7 +171,7 @@ pub fn get_entry_raw_content(conn: &Connection, id: i64) -> Result<Option<Vec<u8
     }
 }
 
-/// 切换收藏状态
+/// 切换收藏状态（同时自动更新默认收藏夹）
 pub fn toggle_pin(conn: &Connection, id: i64) -> Result<bool> {
     conn.execute(
         "UPDATE clipboard_entries SET is_pinned = CASE WHEN is_pinned = 0 THEN 1 ELSE 0 END WHERE id = ?1",
@@ -185,7 +185,178 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<bool> {
             |row| row.get::<_, i32>(0).map(|v| v != 0),
         )
         .unwrap_or(false);
+
+    // 同步默认收藏夹
+    sync_pinned_to_default_folder(conn, id, pinned)?;
+
     Ok(pinned)
+}
+
+// ========== 文件夹相关函数 ==========
+
+/// 同步 pinned 状态到默认收藏夹
+fn sync_pinned_to_default_folder(conn: &Connection, entry_id: i64, is_pinned: bool) -> Result<()> {
+    if is_pinned {
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        conn.execute(
+            "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at)
+             VALUES ((SELECT id FROM folders WHERE is_default = 1), ?1, ?2)",
+            params![entry_id, now],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM folder_entries WHERE folder_id = (SELECT id FROM folders WHERE is_default = 1) AND entry_id = ?1",
+            params![entry_id],
+        )?;
+    }
+    Ok(())
+}
+
+/// 创建文件夹
+pub fn create_folder(conn: &Connection, name: &str) -> Result<Folder> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    // 计算新的 sort_order（末尾）
+    let max_order: i64 = conn
+        .query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM folders", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    conn.execute(
+        "INSERT INTO folders (name, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        params![name, max_order, now, now],
+    )?;
+
+    let id = conn.last_insert_rowid();
+    Ok(Folder {
+        id,
+        name: name.to_string(),
+        is_default: false,
+        sort_order: max_order,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+/// 重命名文件夹
+pub fn rename_folder(conn: &Connection, id: i64, new_name: &str) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    conn.execute(
+        "UPDATE folders SET name = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_name, now, id],
+    )?;
+    Ok(())
+}
+
+/// 删除自定义文件夹（禁止删除默认收藏夹）
+pub fn delete_folder(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM folders WHERE id = ?1 AND is_default = 0",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// 列出所有文件夹（含条目计数）
+pub fn list_folders(conn: &Connection) -> Result<Vec<FolderWithEntryCount>> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.name, f.is_default, f.sort_order, f.created_at, f.updated_at,
+                COUNT(fe.entry_id) AS entry_count
+         FROM folders f
+         LEFT JOIN folder_entries fe ON fe.folder_id = f.id
+         GROUP BY f.id
+         ORDER BY f.sort_order ASC, f.id ASC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(FolderWithEntryCount {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            is_default: row.get::<_, i32>(2)? != 0,
+            sort_order: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+            entry_count: row.get(6)?,
+        })
+    })?;
+
+    let mut folders = Vec::new();
+    for row in rows {
+        folders.push(row?);
+    }
+    Ok(folders)
+}
+
+/// 添加条目到文件夹
+pub fn add_entry_to_folder(conn: &Connection, folder_id: i64, entry_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    conn.execute(
+        "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at) VALUES (?1, ?2, ?3)",
+        params![folder_id, entry_id, now],
+    )?;
+    Ok(())
+}
+
+/// 从文件夹移除条目
+pub fn remove_entry_from_folder(conn: &Connection, folder_id: i64, entry_id: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM folder_entries WHERE folder_id = ?1 AND entry_id = ?2",
+        params![folder_id, entry_id],
+    )?;
+    Ok(())
+}
+
+/// 分页获取文件夹内的条目
+pub fn get_folder_entries(
+    conn: &Connection,
+    folder_id: i64,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ClipboardEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT e.id, e.content_hash, e.text_preview, e.content_type, e.content_size,
+                e.source_app, e.source_class, e.captured_at, e.last_accessed, e.is_pinned, e.is_deleted
+         FROM clipboard_entries e
+         INNER JOIN folder_entries fe ON fe.entry_id = e.id
+         WHERE fe.folder_id = ?1 AND e.is_deleted = 0
+         ORDER BY fe.added_at DESC, e.id DESC
+         LIMIT ?2 OFFSET ?3",
+    )?;
+
+    let rows = stmt.query_map(params![folder_id, limit, offset], |row| {
+        Ok(ClipboardEntry {
+            id: row.get(0)?,
+            content_hash: row.get(1)?,
+            text_preview: row.get(2)?,
+            content_type: row.get(3)?,
+            content_size: row.get(4)?,
+            source_app: row.get(5)?,
+            source_class: row.get(6)?,
+            captured_at: row.get(7)?,
+            last_accessed: row.get(8)?,
+            is_pinned: row.get::<_, i32>(9)? != 0,
+            is_deleted: row.get::<_, i32>(10)? != 0,
+        })
+    })?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?);
+    }
+    Ok(entries)
+}
+
+/// 获取条目所属的所有文件夹ID
+pub fn get_entry_folders(conn: &Connection, entry_id: i64) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT folder_id FROM folder_entries WHERE entry_id = ?1",
+    )?;
+
+    let rows = stmt.query_map(params![entry_id], |row| row.get::<_, i64>(0))?;
+
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row?);
+    }
+    Ok(ids)
 }
 
 /// 软删除单条
