@@ -77,16 +77,35 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
-    // 创建默认收藏夹
+    // 唯一索引：确保只有一个默认收藏夹
     conn.execute(
-        "INSERT OR IGNORE INTO folders (name, is_default, sort_order) VALUES ('收藏夹', 1, 0);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_unique_default
+         ON folders(is_default) WHERE is_default = 1;",
         [],
     )?;
 
-    // 回填已有 pinned 条目到默认收藏夹
+    // 清理重复的默认收藏夹（修复第一次迁移的 bug：没有 UNIQUE 约束导致重复插入）
+    conn.execute_batch(
+        "DELETE FROM folder_entries WHERE folder_id IN (
+            SELECT id FROM folders WHERE is_default = 1
+            AND id NOT IN (SELECT MIN(id) FROM folders WHERE is_default = 1)
+        );
+        DELETE FROM folders WHERE is_default = 1
+        AND id NOT IN (SELECT MIN(id) FROM folders WHERE is_default = 1);",
+    )?;
+
+    // 创建默认收藏夹（仅在不存在时插入）
+    conn.execute(
+        "INSERT INTO folders (name, is_default, sort_order)
+         SELECT '收藏夹', 1, 0
+         WHERE NOT EXISTS (SELECT 1 FROM folders WHERE is_default = 1);",
+        [],
+    )?;
+
+    // 回填已有 pinned 条目到默认收藏夹（使用 MIN(id) 防多行）
     conn.execute(
         "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at)
-         SELECT (SELECT id FROM folders WHERE is_default = 1), id, captured_at
+         SELECT (SELECT MIN(id) FROM folders WHERE is_default = 1), id, captured_at
          FROM clipboard_entries WHERE is_pinned = 1 AND is_deleted = 0;",
         [],
     )?;

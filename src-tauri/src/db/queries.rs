@@ -210,17 +210,18 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<bool> {
 // ========== 文件夹相关函数 ==========
 
 /// 同步 pinned 状态到默认收藏夹
+/// 使用 MIN(id) 保证即使有重复默认文件夹也不报错
 fn sync_pinned_to_default_folder(conn: &Connection, entry_id: i64, is_pinned: bool) -> Result<()> {
     if is_pinned {
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         conn.execute(
             "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at)
-             VALUES ((SELECT id FROM folders WHERE is_default = 1), ?1, ?2)",
+             VALUES ((SELECT MIN(id) FROM folders WHERE is_default = 1), ?1, ?2)",
             params![entry_id, now],
         )?;
     } else {
         conn.execute(
-            "DELETE FROM folder_entries WHERE folder_id = (SELECT id FROM folders WHERE is_default = 1) AND entry_id = ?1",
+            "DELETE FROM folder_entries WHERE folder_id = (SELECT MIN(id) FROM folders WHERE is_default = 1) AND entry_id = ?1",
             params![entry_id],
         )?;
     }
