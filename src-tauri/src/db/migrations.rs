@@ -77,14 +77,8 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     )?;
 
-    // 唯一索引：确保只有一个默认收藏夹
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_unique_default
-         ON folders(is_default) WHERE is_default = 1;",
-        [],
-    )?;
-
     // 清理重复的默认收藏夹（修复第一次迁移的 bug：没有 UNIQUE 约束导致重复插入）
+    // 必须在创建唯一索引之前执行，否则已存在的重复行会导致索引创建失败
     conn.execute_batch(
         "DELETE FROM folder_entries WHERE folder_id IN (
             SELECT id FROM folders WHERE is_default = 1
@@ -92,6 +86,13 @@ pub fn run_migrations(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         DELETE FROM folders WHERE is_default = 1
         AND id NOT IN (SELECT MIN(id) FROM folders WHERE is_default = 1);",
+    )?;
+
+    // 唯一索引：确保只有一个默认收藏夹
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_unique_default
+         ON folders(is_default) WHERE is_default = 1;",
+        [],
     )?;
 
     // 创建默认收藏夹（仅在不存在时插入）
