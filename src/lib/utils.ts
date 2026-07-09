@@ -1,6 +1,23 @@
+/** 修复 chrono 缺少小数点的时间字符串（RFC 3339 要求毫秒前有小数点） */
+function fixChronoDate(isoString: string): string {
+  // 匹配 "HH:MM:999999999Z"（没有小数点的纳秒格式）→ 修正为 "HH:MM:SS.fffZ"
+  return isoString.replace(
+    /(\d{2}:\d{2}):(\d{9})Z$/,
+    (_, time, nanos) => {
+      const secs = parseInt(nanos, 10) / 1_000_000_000;
+      const whole = Math.floor(secs);
+      const ms = Math.round((secs - whole) * 1000);
+      return `${time}:${String(whole).padStart(2, "0")}.${String(ms).padStart(3, "0")}Z`;
+    }
+  );
+}
+
 /** 格式化时间戳为相对时间 */
 export function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString);
+  const fixed = fixChronoDate(isoString);
+  const date = new Date(fixed);
+  // 如果日期仍然无效，显示原始时间戳
+  if (isNaN(date.getTime())) return isoString || "未知";
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);

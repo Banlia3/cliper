@@ -6,6 +6,7 @@
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   let entries = $state<ClipboardEntry[]>([]);
   let offset = $state(0);
@@ -13,10 +14,26 @@
   let loading = $state(false);
   let searchResults = $state<ClipboardEntry[] | null>(null);
   let unlisten: UnlistenFn | undefined = $state();
+  let unlistenFocus: UnlistenFn | undefined = $state();
 
   const PAGE_SIZE = 30;
 
-  /** 首次加载 + 监听新事件 */
+  /** 合并新加载的条目到现有列表（按 id 去重，保留顺序） */
+  function mergeEntries(current: ClipboardEntry[], newEntries: ClipboardEntry[]): ClipboardEntry[] {
+    const seen = new Set(current.map(e => e.id));
+    const merged = [...current];
+    for (const entry of newEntries) {
+      if (!seen.has(entry.id)) {
+        merged.push(entry);
+        seen.add(entry.id);
+      }
+    }
+    // 按 last_accessed DESC 排序
+    merged.sort((a, b) => b.last_accessed.localeCompare(a.last_accessed));
+    return merged;
+  }
+
+  /** 首次加载 + 监听新事件 + 窗口聚焦时刷新 */
   onMount(async () => {
     await loadMore();
 
@@ -25,26 +42,41 @@
       const { id, text_preview, content_type } = event.payload;
       // 如果当前没有搜索，把新条目插入到列表顶部
       if (!searchResults) {
-        entries = [
-          {
-            id,
-            text_preview,
-            content_type: content_type as ClipboardEntry["content_type"],
-            content_hash: "",
-            content_size: 0,
-            source_app: "",
-            captured_at: new Date().toISOString(),
-            last_accessed: new Date().toISOString(),
-            is_pinned: false,
-          },
-          ...entries,
-        ];
+        // 检查是否已存在（防重复）
+        if (!entries.some(e => e.id === id)) {
+          entries = [
+            {
+              id,
+              text_preview,
+              content_type: content_type as ClipboardEntry["content_type"],
+              content_hash: "",
+              content_size: 0,
+              source_app: "",
+              captured_at: new Date().toISOString(),
+              last_accessed: new Date().toISOString(),
+              is_pinned: false,
+            },
+            ...entries,
+          ];
+        }
+      }
+    });
+
+    // 窗口聚焦时刷新历史（弥补隐藏期间可能丢失的 new-clip 事件）
+    const appWindow = getCurrentWindow();
+    unlistenFocus = await appWindow.onFocusChanged(async ({ payload: focused }) => {
+      if (!focused) return;        // 只有获得焦点时才刷新
+      if (searchResults) return;   // 搜索模式下不自动刷新
+      const freshEntries = await loadHistory(0, PAGE_SIZE);
+      if (freshEntries.length > 0) {
+        entries = mergeEntries(entries, freshEntries);
       }
     });
   });
 
   onDestroy(() => {
     if (unlisten) unlisten();
+    if (unlistenFocus) unlistenFocus();
   });
 
   /** 加载更多（分页） */

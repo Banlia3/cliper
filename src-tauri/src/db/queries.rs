@@ -31,8 +31,8 @@ pub fn insert_or_update_entry(
         return Ok(Some(id));
     }
 
-    // 不存在 -> 插入新记录
-    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%f").to_string() + "Z";
+    // 不存在 -> 插入新记录（RFC 3339 格式确保 JS 可解析）
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     conn.execute(
         "INSERT INTO clipboard_entries (content_hash, text_preview, content_type, raw_content, content_size, source_app, source_class, captured_at, last_accessed)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
