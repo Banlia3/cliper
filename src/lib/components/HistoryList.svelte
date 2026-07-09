@@ -3,7 +3,7 @@
   import type { ClipboardEntry } from "../types";
   import { loadHistory, searchHistory, copyToClipboard, deleteEntry, togglePin, clearHistory } from "../stores/history";
   import { getFolderEntries } from "../stores/folders";
-  import { searchQuery, panelVisible, selectedFolderId } from "../stores/ui";
+  import { searchQuery, panelVisible, selectedFolderId, folderDataVersion } from "../stores/ui";
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -107,6 +107,10 @@
     }
 
     const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
+
+    // 用户可能已切换视图，丢弃过期结果（防竞态）
+    if ($selectedFolderId !== folderId) return;
+
     folderEntries = [...(folderEntries ?? []), ...newEntries];
     folderOffset += newEntries.length;
     folderHasMore = newEntries.length === PAGE_SIZE;
@@ -121,6 +125,7 @@
     const folderId = $selectedFolderId;
     if (folderId !== null) {
       const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
+      if ($selectedFolderId !== folderId) return; // 已切换视图，丢弃
       folderEntries = [...(folderEntries ?? []), ...newEntries];
       folderOffset += newEntries.length;
       folderHasMore = newEntries.length === PAGE_SIZE;
@@ -187,6 +192,8 @@
     if (searchResults) {
       searchResults = updateList(searchResults);
     }
+    // 刷新文件夹计数和收藏夹列表
+    folderDataVersion.update(v => v + 1);
   }
 
   /** 滚动到底部时加载更多 */

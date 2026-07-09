@@ -210,20 +210,50 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<bool> {
 // ========== 文件夹相关函数 ==========
 
 /// 同步 pinned 状态到默认收藏夹
-/// 使用 MIN(id) 保证即使有重复默认文件夹也不报错
+/// 先获取默认文件夹 ID，避免子查询返回 NULL 导致 INSERT OR IGNORE 静默失败
 fn sync_pinned_to_default_folder(conn: &Connection, entry_id: i64, is_pinned: bool) -> Result<()> {
+    // 先获取默认收藏夹 ID（独立查询确保值有效）
+    let folder_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM folders WHERE is_default = 1 LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let folder_id = match folder_id {
+        Some(id) => id,
+        None => {
+            log::error!(
+                "[sync_pinned_to_default_folder] 默认收藏夹不存在！entry_id={}, is_pinned={}",
+                entry_id,
+                is_pinned
+            );
+            return Ok(());
+        }
+    };
+
     if is_pinned {
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         conn.execute(
-            "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at)
-             VALUES ((SELECT MIN(id) FROM folders WHERE is_default = 1), ?1, ?2)",
-            params![entry_id, now],
+            "INSERT OR IGNORE INTO folder_entries (folder_id, entry_id, added_at) VALUES (?1, ?2, ?3)",
+            params![folder_id, entry_id, now],
         )?;
+        log::info!(
+            "[sync_pinned_to_default_folder] 已添加 entry_id={} 到 folder_id={}",
+            entry_id,
+            folder_id
+        );
     } else {
         conn.execute(
-            "DELETE FROM folder_entries WHERE folder_id = (SELECT MIN(id) FROM folders WHERE is_default = 1) AND entry_id = ?1",
-            params![entry_id],
+            "DELETE FROM folder_entries WHERE folder_id = ?1 AND entry_id = ?2",
+            params![folder_id, entry_id],
         )?;
+        log::info!(
+            "[sync_pinned_to_default_folder] 已从 folder_id={} 移除 entry_id={}",
+            folder_id,
+            entry_id
+        );
     }
     Ok(())
 }

@@ -91,6 +91,13 @@ pub fn get_folder_entries(
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let entries = queries::get_folder_entries(&conn, folder_id, limit, offset)
         .map_err(|e| e.to_string())?;
+    log::info!(
+        "[get_folder_entries] folder_id={}, limit={}, offset={}, 返回 {} 条",
+        folder_id,
+        limit,
+        offset,
+        entries.len()
+    );
     Ok(entries.into_iter().map(ClipboardEntrySummary::from).collect())
 }
 
