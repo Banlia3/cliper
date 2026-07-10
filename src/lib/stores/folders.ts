@@ -88,3 +88,14 @@ export async function getEntryFolders(entryId: number): Promise<number[]> {
     return [];
   }
 }
+
+/** 清空指定文件夹的所有条目（只删除关联，不删除条目本身） */
+export async function clearFolderEntries(folderId: number): Promise<boolean> {
+  try {
+    await invoke("clear_folder", { folderId });
+    return true;
+  } catch (err) {
+    console.error("清空文件夹内容失败:", err);
+    return false;
+  }
+}

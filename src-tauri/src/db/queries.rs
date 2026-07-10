@@ -24,11 +24,12 @@ pub fn insert_or_update_entry(
 
     if let Some(id) = existing {
         // 已存在 -> 更新 last_accessed（移至顶部）
+        // 返回 None 表示非新条目，主循环不会发射 new-clip 事件（避免剪贴板风暴）
         conn.execute(
             "UPDATE clipboard_entries SET last_accessed = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
             params![id],
         )?;
-        return Ok(Some(id));
+        return Ok(None);
     }
 
     // 不存在 -> 插入新记录（RFC 3339 格式确保 JS 可解析）
@@ -478,6 +479,56 @@ pub fn cleanup_old_entries(conn: &Connection, max_count: i64) -> Result<usize> {
         params![to_delete],
     )?;
     Ok(to_delete as usize)
+}
+
+/// 清空指定文件夹的所有条目（保留条目本身，只删除关联）
+///
+/// 如果是默认收藏夹，还会同时取消条目的收藏状态（is_pinned = 0），
+/// 避免在"全部"视图中仍显示星标。
+pub fn clear_folder_entries(conn: &Connection, folder_id: i64) -> Result<usize> {
+    // 先检查是否默认收藏夹
+    let is_default: bool = conn
+        .query_row(
+            "SELECT is_default FROM folders WHERE id = ?1",
+            params![folder_id],
+            |row| row.get::<_, i32>(0).map(|v| v != 0),
+        )
+        .unwrap_or(false);
+
+    // 如果是默认收藏夹，先取出条目 ID（删掉关联后查不到了）
+    let entry_ids: Vec<i64> = if is_default {
+        let mut stmt = conn.prepare(
+            "SELECT entry_id FROM folder_entries WHERE folder_id = ?1",
+        )?;
+        let ids: Vec<i64> = stmt.query_map(params![folder_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        ids
+    } else {
+        vec![]
+    };
+
+    // 删除所有关联
+    let count = conn.execute(
+        "DELETE FROM folder_entries WHERE folder_id = ?1",
+        params![folder_id],
+    )?;
+
+    // 默认收藏夹：同时取消这些条目的收藏状态
+    if is_default && !entry_ids.is_empty() {
+        for entry_id in &entry_ids {
+            conn.execute(
+                "UPDATE clipboard_entries SET is_pinned = 0 WHERE id = ?1 AND is_pinned = 1",
+                params![entry_id],
+            )?;
+        }
+        log::info!(
+            "[clear_folder_entries] 默认收藏夹: 已取消 {} 条条目的收藏",
+            entry_ids.len()
+        );
+    }
+
+    Ok(count)
 }
 
 // 为 Result 提供 optional() 辅助方法

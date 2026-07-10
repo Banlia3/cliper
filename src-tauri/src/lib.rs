@@ -98,8 +98,7 @@ pub fn run() {
                 loop {
                     match event_rx.lock().unwrap().recv() {
                         Ok(event) => {
-                            let preview_short: String = event.text_preview.chars().take(40).collect();
-                            log::info!("收到剪贴板事件: {}", preview_short);
+                            log::info!("收到剪贴板事件: [类型={}, 大小={}字节]", event.content_type, event.content_size);
 
                             // 锁定数据库连接写入
                             let conn = db_clone.conn.lock().unwrap();
@@ -184,6 +183,8 @@ pub fn run() {
             commands::folders::remove_from_folder,
             commands::folders::get_folder_entries,
             commands::folders::get_entry_folders,
+            commands::folders::clear_folder,
+            commands::devtools::open_devtools,
             settings::manager::get_settings,
             settings::manager::update_settings,
         ])

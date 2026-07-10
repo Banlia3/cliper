@@ -128,11 +128,8 @@ impl ClipboardListener {
                     continue;
                 }
 
-                let preview_short: String = preview.chars().take(40).collect();
-                log::info!("📋 新剪贴板内容: {} | {} | {}",
-                    preview_short,
-                    &content_type,
-                    &hash[..12]
+                log::info!("📋 新剪贴板内容: [类型={}, 大小={}字节, hash={}]",
+                    &content_type, preview.len(), &hash[..12]
                 );
 
                 // 发送事件给主线程

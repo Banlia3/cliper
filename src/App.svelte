@@ -5,13 +5,18 @@
   import FolderBar from "./lib/components/FolderBar.svelte";
   import { panelVisible, searchQuery } from "./lib/stores/ui";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { invoke } from "@tauri-apps/api/core";
 
   const appWindow = getCurrentWindow();
 
-  /** 监听 Escape 键关闭面板 */
+  /** 监听 Escape 键关闭面板，Ctrl+Shift+I/F12 打开 DevTools */
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       closePanel();
+    }
+    if ((e.key === "F12") || (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i"))) {
+      e.preventDefault();
+      invoke("open_devtools").catch((err) => console.error("打开 DevTools 失败:", err));
     }
   }
 

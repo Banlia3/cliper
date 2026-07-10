@@ -110,3 +110,16 @@ pub fn get_entry_folders(
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     queries::get_entry_folders(&conn, entry_id).map_err(|e| e.to_string())
 }
+
+/// 清空指定文件夹的所有条目（只删除关联，不删除条目本身）
+#[tauri::command]
+pub fn clear_folder(
+    db: State<'_, Arc<Database>>,
+    folder_id: i64,
+) -> Result<usize, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let count = queries::clear_folder_entries(&conn, folder_id)
+        .map_err(|e| e.to_string())?;
+    log::info!("已清空文件夹 {}: 移除 {} 条关联", folder_id, count);
+    Ok(count)
+}

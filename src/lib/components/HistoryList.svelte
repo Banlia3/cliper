@@ -2,7 +2,8 @@
   import HistoryItem from "./HistoryItem.svelte";
   import type { ClipboardEntry } from "../types";
   import { loadHistory, searchHistory, copyToClipboard, deleteEntry, togglePin, clearHistory } from "../stores/history";
-  import { getFolderEntries } from "../stores/folders";
+  import { getFolderEntries, clearFolderEntries } from "../stores/folders";
+  import { confirm } from "@tauri-apps/plugin-dialog";
   import { searchQuery, panelVisible, selectedFolderId, folderDataVersion } from "../stores/ui";
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
@@ -22,6 +23,7 @@
   let folderEntries = $state<ClipboardEntry[] | null>(null);
   let folderOffset = $state(0);
   let folderHasMore = $state(true);
+  let lastFolderLoadKey = $state<string | null>(null); // 防 $effect 双重触发
 
   const PAGE_SIZE = 30;
 
@@ -80,13 +82,19 @@
       }
     });
 
-    // 监听托盘"清空历史"事件
+    // 监听托盘"清空历史"事件（只清除非收藏条目，收藏夹数据不受影响）
     unlistenHistoryCleared = await listen("history-cleared", () => {
-      entries = [];
-      offset = 0;
-      hasMore = false;
       searchResults = null;
-      folderEntries = null;
+      // "全部"视图：重置并重新加载（保留收藏条目）
+      offset = 0;
+      hasMore = true;
+      entries = [];
+      // 如果当前在全部视图，重新加载
+      if ($selectedFolderId === null) {
+        loadMore();
+      }
+      // 触发文件夹计数和内容的刷新
+      folderDataVersion.update(v => v + 1);
     });
   });
 
@@ -98,20 +106,28 @@
 
   /** 加载文件夹内容 */
   async function loadFolderEntries(folderId: number, reset: boolean) {
+    console.log(`[loadFolderEntries] 开始 loading=${loading} folderId=${folderId} reset=${reset} offset=${folderOffset}`);
     loading = true;
 
     if (reset) {
+      console.log(`[loadFolderEntries] 重置 folderEntries 为 []`);
       folderOffset = 0;
       folderHasMore = true;
       folderEntries = [];
     }
 
     const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
+    console.log(`[loadFolderEntries] getFolderEntries 返回 ${newEntries.length} 条`, JSON.parse(JSON.stringify(newEntries)));
 
     // 用户可能已切换视图，丢弃过期结果（防竞态）
-    if ($selectedFolderId !== folderId) return;
+    if ($selectedFolderId !== folderId) {
+      console.log(`[loadFolderEntries] 视图已切换(${$selectedFolderId} !== ${folderId})，丢弃`);
+      loading = false;
+      return;
+    }
 
     folderEntries = [...(folderEntries ?? []), ...newEntries];
+    console.log(`[loadFolderEntries] 合并后 folderEntries 共 ${folderEntries.length} 条`);
     folderOffset += newEntries.length;
     folderHasMore = newEntries.length === PAGE_SIZE;
     loading = false;
@@ -119,13 +135,14 @@
 
   /** 加载更多（分页） */
   async function loadMore() {
-    if (loading || !hasMore) return;
+    if (loading) return;
     loading = true;
 
     const folderId = $selectedFolderId;
     if (folderId !== null) {
+      if (!folderHasMore) { loading = false; return; }
       const newEntries = await getFolderEntries(folderId, folderOffset, PAGE_SIZE);
-      if ($selectedFolderId !== folderId) return; // 已切换视图，丢弃
+      if ($selectedFolderId !== folderId) { loading = false; return; } // 已切换视图，丢弃
       folderEntries = [...(folderEntries ?? []), ...newEntries];
       folderOffset += newEntries.length;
       folderHasMore = newEntries.length === PAGE_SIZE;
@@ -133,6 +150,7 @@
       return;
     }
 
+    if (!hasMore) { loading = false; return; }
     const newEntries = await loadHistory(offset, PAGE_SIZE);
     entries = [...entries, ...newEntries];
     offset += newEntries.length;
@@ -140,13 +158,20 @@
     loading = false;
   }
 
-  /** 文件夹选择监听 */
+  /** 文件夹选择监听（带防重入 + 响应 folderDataVersion 变化） */
   $effect(() => {
     const folderId = $selectedFolderId;
+    const version = $folderDataVersion;
+    const key = folderId === null ? null : `${folderId}-${version}`;
+    console.log(`[effect] selectedFolderId=${folderId}, version=${version}, lastKey=${lastFolderLoadKey}, newKey=${key}`);
     if (folderId === null) {
       folderEntries = null;
-    } else {
+      lastFolderLoadKey = null;
+    } else if (key !== lastFolderLoadKey) {
+      lastFolderLoadKey = key;
       loadFolderEntries(folderId, true);
+    } else {
+      console.log(`[effect] 跳过重复触发 folderId=${folderId}`);
     }
   });
 
@@ -179,6 +204,10 @@
       if (searchResults) {
         searchResults = searchResults.filter((e) => e.id !== id);
       }
+      if (folderEntries !== null) {
+        folderEntries = folderEntries.filter(e => e.id !== id);
+      }
+      folderDataVersion.update(v => v + 1);
     }
   }
 
@@ -192,8 +221,15 @@
     if (searchResults) {
       searchResults = updateList(searchResults);
     }
-    // 刷新文件夹计数和收藏夹列表
-    folderDataVersion.update(v => v + 1);
+    // 如果当前在文件夹视图且取消了收藏 → 从 folderEntries 中移除该条目
+    if (!newState && folderEntries !== null) {
+      folderEntries = folderEntries.filter(e => e.id !== id);
+      // 更新文件夹计数（通知 FolderBar 刷新）
+      folderDataVersion.update(v => v + 1);
+    } else {
+      // 刷新文件夹计数和收藏夹列表
+      folderDataVersion.update(v => v + 1);
+    }
   }
 
   /** 滚动到底部时加载更多 */
@@ -204,18 +240,64 @@
     }
   }
 
-  /** 清空所有 */
-  async function handleClearAll() {
-    const success = await clearHistory();
-    if (success) {
-      entries = [];
-      searchResults = null;
-      offset = 0;
-      hasMore = false;
+  /** 清空当前视图（两步确认）：全部视图→清空所有，文件夹视图→清空文件夹 */
+  async function handleClearCurrentView() {
+    const folderId = $selectedFolderId;
+
+    // 第一步确认
+    const step1 = await confirm("确认全部删除吗？", { title: "清空", kind: "warning" });
+    if (!step1) return;
+
+    // 第二步确认
+    const step2 = await confirm("真的确认吗？", { title: "确认", kind: "warning" });
+    if (!step2) return;
+
+    if (folderId !== null) {
+      // 文件夹视图：清空当前文件夹（只删关联，保留条目本身）
+      const ok = await clearFolderEntries(folderId);
+      if (ok) {
+        folderEntries = [];
+        folderHasMore = false;
+        folderDataVersion.update(v => v + 1);
+        // 重新加载主列表，确保 is_pinned 状态与后端同步
+        const fresh = await loadHistory(0, PAGE_SIZE);
+        if (fresh.length > 0) {
+          entries = fresh;
+          offset = fresh.length;
+          hasMore = fresh.length === PAGE_SIZE;
+        }
+      }
+    } else {
+      // 全部视图：清空所有非收藏条目
+      const ok = await clearHistory();
+      if (ok) {
+        entries = [];
+        searchResults = null;
+        offset = 0;
+        hasMore = false;
+        folderDataVersion.update(v => v + 1);
+      }
     }
   }
 
-  const displayEntries = $derived(folderEntries ?? searchResults ?? entries);
+  const displayEntries = $derived.by(() => {
+    const result = searchResults ?? folderEntries ?? entries;
+    console.log(`[displayEntries] searchResults=${searchResults?.length ?? null} folderEntries=${folderEntries?.length ?? null} entries=${entries.length} → ${result.length} 条`);
+    return result;
+  });
+
+  /** 诊断：追踪 folderEntries 每次变化 */
+  $effect(() => {
+    const len = folderEntries?.length;
+    console.log(`[folderEntries 变化] ${folderEntries === null ? 'null' : len + ' 条'}`);
+
+    // 延迟检查最终状态
+    if (folderEntries !== null) {
+      setTimeout(() => {
+        console.log(`[延迟500ms] folderEntries=${folderEntries?.length ?? 'null'}`);
+      }, 500);
+    }
+  });
 </script>
 
 <div class="history-list" onscroll={onScroll}>
@@ -230,6 +312,11 @@
       {/if}
     </div>
   {:else}
+    <div class="clear-all-row">
+      <button class="clear-all-btn" onclick={handleClearCurrentView}>
+        🗑️ 全部清除
+      </button>
+    </div>
     {#each displayEntries as entry (entry.id)}
       <HistoryItem
         {entry}
@@ -282,5 +369,30 @@
     padding: 12px;
     color: var(--text-secondary);
     font-size: 12px;
+  }
+
+  .clear-all-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--border-color, #eee);
+    flex-shrink: 0;
+  }
+
+  .clear-all-btn {
+    background: none;
+    border: none;
+    color: var(--text-danger, #e74c3c);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+  }
+
+  .clear-all-btn:hover {
+    opacity: 1;
+    background: var(--bg-hover, rgba(231, 76, 60, 0.08));
   }
 </style>
