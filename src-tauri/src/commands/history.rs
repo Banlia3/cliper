@@ -118,3 +118,16 @@ pub fn toggle_pin(
         .map_err(|e| e.to_string())?;
     Ok(new_state)
 }
+
+/// 获取单个条目的元数据（不含原始内容）
+#[tauri::command]
+pub fn get_entry_by_id(
+    db: State<'_, Arc<Database>>,
+    id: i64,
+) -> Result<ClipboardEntrySummary, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let entry = queries::get_entry_by_id(&conn, id)
+        .map_err(|e| e.to_string())?
+        .ok_or("条目不存在".to_string())?;
+    Ok(ClipboardEntrySummary::from(entry))
+}

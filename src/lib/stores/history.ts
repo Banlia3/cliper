@@ -82,6 +82,17 @@ export async function togglePin(id: number): Promise<boolean> {
   }
 }
 
+/** 获取单条条目元数据 */
+export async function getEntryById(id: number): Promise<ClipboardEntry | null> {
+  try {
+    const entry = await invoke<ClipboardEntry>("get_entry_by_id", { id });
+    return entry;
+  } catch (err) {
+    console.error("获取条目失败:", err);
+    return null;
+  }
+}
+
 /** 获取条目的原始二进制内容（图片→PNG 字节，文本→UTF-8 字节） */
 export async function getEntryContent(id: number): Promise<Uint8Array | null> {
   try {

@@ -1,18 +1,18 @@
 <script lang="ts">
   import type { ClipboardEntry } from "../types";
   import { formatRelativeTime, getContentTypeIcon, truncateText } from "../utils";
-  import { getEntryContent, createImageUrl } from "../stores/history";
+  import { getEntryContent, createImageUrl, copyToClipboard } from "../stores/history";
   import { onDestroy } from "svelte";
   import FolderAssignPopover from "./FolderAssignPopover.svelte";
+  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
   interface Props {
     entry: ClipboardEntry;
-    onSelect: (id: number) => void;
     onPin: (id: number) => void;
     onDelete: (id: number) => void;
   }
 
-  let { entry, onSelect, onPin, onDelete }: Props = $props();
+  let { entry, onPin, onDelete }: Props = $props();
   let showFolderPopover = $state(false);
 
   let imageUrl = $state<string | null>(null);
@@ -43,8 +43,29 @@
     imageLoading = false;
   }
 
-  function handleClick() {
-    onSelect(entry.id);
+  async function handleClick() {
+    // 打开新窗口查看完整内容
+    const label = `detail-${entry.id}`;
+    // 避免重复打开相同条目（getByLabel 是异步 API）
+    const existing = await WebviewWindow.getByLabel(label);
+    if (existing) return;
+    const detailWin = new WebviewWindow(label, {
+      url: `/?detail=${entry.id}`,
+      title: "查看详情",
+      width: 640,
+      height: 540,
+      decorations: true,
+      resizable: true,
+      center: true,
+    });
+    detailWin.once("tauri://error", () => {
+      console.error("打开详情窗口失败");
+    });
+  }
+
+  async function handleCopy(e: MouseEvent) {
+    e.stopPropagation();
+    await copyToClipboard(entry.id);
   }
 
   function handlePin(e: MouseEvent) {
@@ -113,7 +134,10 @@
   </div>
 
   <div class="item-actions">
-    <button class="action-btn pin-btn" onclick={handlePin} title={entry.is_pinned ? "取消置顶" : "置顶"}>
+    <button class="action-btn copy-btn" onclick={handleCopy} title="复制到剪贴板">
+      📋
+    </button>
+    <button class="action-btn pin-btn" onclick={handlePin} title={entry.is_pinned ? "取消收藏" : "收藏"}>
       {entry.is_pinned ? "★" : "☆"}
     </button>
     <button class="action-btn folder-btn" onclick={handleFolderAssign} title="分配到文件夹">

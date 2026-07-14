@@ -3,11 +3,27 @@
   import SearchBar from "./lib/components/SearchBar.svelte";
   import HistoryList from "./lib/components/HistoryList.svelte";
   import FolderBar from "./lib/components/FolderBar.svelte";
+  import DetailView from "./lib/components/DetailView.svelte";
   import { panelVisible, searchQuery } from "./lib/stores/ui";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
 
   const appWindow = getCurrentWindow();
+
+  // 检测是否在详情窗口模式（URL 参数 ?detail=ENTRY_ID）
+  let detailEntryId = $state<number | null>(null);
+
+  function parseDetailParam(): number | null {
+    const params = new URLSearchParams(window.location.search);
+    const idStr = params.get("detail");
+    if (idStr) {
+      const id = parseInt(idStr, 10);
+      if (!isNaN(id)) return id;
+    }
+    return null;
+  }
+
+  detailEntryId = parseDetailParam();
 
   /** 监听 Escape 键关闭面板，Ctrl+Shift+I/F12 打开 DevTools */
   function handleKeydown(e: KeyboardEvent) {
@@ -46,29 +62,33 @@
   }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={detailEntryId === null ? handleKeydown : undefined} />
 
-<div class="panel">
-  <!-- 缩放边框：四边 -->
-  {#each ["North","South","West","East","NorthWest","NorthEast","SouthWest","SouthEast"] as dir}
-    <div class="resize-handle {dir.toLowerCase()}" role="presentation" onmousedown={onResizeStart(dir)}></div>
-  {/each}
+{#if detailEntryId !== null}
+  <DetailView entryId={detailEntryId} />
+{:else}
+  <div class="panel">
+    <!-- 缩放边框：四边 -->
+    {#each ["North","South","West","East","NorthWest","NorthEast","SouthWest","SouthEast"] as dir}
+      <div class="resize-handle {dir.toLowerCase()}" role="presentation" onmousedown={onResizeStart(dir)}></div>
+    {/each}
 
-  <!-- 标题栏（拖拽区域） -->
-  <div class="title-bar" role="toolbar" onmousedown={onTitleBarMouseDown}>
-    <span class="title-text">剪贴板历史</span>
-    <button class="close-btn" onclick={closePanel}>✕</button>
+    <!-- 标题栏（拖拽区域） -->
+    <div class="title-bar" role="toolbar" onmousedown={onTitleBarMouseDown}>
+      <span class="title-text">剪贴板历史</span>
+      <button class="close-btn" onclick={closePanel}>✕</button>
+    </div>
+
+    <!-- 文件夹栏 -->
+    <FolderBar />
+
+    <!-- 搜索栏 -->
+    <SearchBar />
+
+    <!-- 历史列表 -->
+    <HistoryList />
   </div>
-
-  <!-- 文件夹栏 -->
-  <FolderBar />
-
-  <!-- 搜索栏 -->
-  <SearchBar />
-
-  <!-- 历史列表 -->
-  <HistoryList />
-</div>
+{/if}
 
 <style>
   .panel {

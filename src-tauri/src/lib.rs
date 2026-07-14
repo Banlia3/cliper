@@ -175,6 +175,7 @@ pub fn run() {
             commands::history::clear_history,
             commands::history::delete_entry,
             commands::history::toggle_pin,
+            commands::history::get_entry_by_id,
             commands::folders::list_folders,
             commands::folders::create_folder,
             commands::folders::rename_folder,

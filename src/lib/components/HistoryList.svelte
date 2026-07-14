@@ -320,7 +320,6 @@
     {#each displayEntries as entry (entry.id)}
       <HistoryItem
         {entry}
-        onSelect={handleSelect}
         onPin={handlePin}
         onDelete={handleDelete}
       />
