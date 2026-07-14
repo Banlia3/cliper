@@ -46,9 +46,14 @@
   async function handleClick() {
     // 打开新窗口查看完整内容
     const label = `detail-${entry.id}`;
-    // 避免重复打开相同条目（getByLabel 是异步 API）
+    // 避免重复打开相同条目
     const existing = await WebviewWindow.getByLabel(label);
-    if (existing) return;
+    if (existing) {
+      // 如果窗口已存在则聚焦到它
+      await existing.show();
+      await existing.setFocus();
+      return;
+    }
     const detailWin = new WebviewWindow(label, {
       url: `/?detail=${entry.id}`,
       title: "查看详情",
@@ -58,8 +63,12 @@
       resizable: true,
       center: true,
     });
-    detailWin.once("tauri://error", () => {
-      console.error("打开详情窗口失败");
+    detailWin.once("tauri://error", (e) => {
+      console.error("打开详情窗口失败:", e);
+    });
+    // 创建成功后聚焦窗口（克服主窗口 alwaysOnTop 的遮挡）
+    detailWin.once("tauri://created", async () => {
+      await detailWin.setFocus();
     });
   }
 
